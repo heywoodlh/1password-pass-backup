@@ -28,30 +28,32 @@ vault_ids=$(printf "%s" "${vault_json}" | jq -r '.[].id')
 for vault in ${vault_ids}
 do
   vault_name=$(printf "%s" "${vault_json}" | jq -r '.[] | select(.id == "'${vault}'") | .name' | sed 's/ /_/g')
-  item_json="$(op item list --vault "${vault}" --format=json | jq -r -c '.[] | {id: .id, title: (.title | gsub(" "; "_")), category: .category}')"
-  for item in ${item_json}
+  item_json="$(op item ls --vault ${vault} --format json | op item get --format json - | jq -rc)"
+  while read item
   do
     id="$(echo "${item}" | jq -r '.id')"
     title="$(echo "${item}" | jq -r '.title')"
     category="$(echo "${item}" | jq -r '.category')"
     filename="${password_store_dir}/${vault_name}/${title}.gpg"
     mkdir -p "$(dirname "${filename}")"
-    item_json=$(op item get --vault "${vault}" "${id}" --format=json)
-    #fields=$(printf "%s" "${item_json}" | jq -cr '.fields[] | {id: .id, type: .type, label: .label, value: .value}')
     username=""
     password=""
     otp=""
-    if [[ "${category}" == "SSH_KEY" ]]
+    pretty_item="$(echo "${item}" | jq '.' 2>/dev/null)"
+    if [[ -n ${pretty_item} ]]
     then
-      echo "creating => ${filename}"
-      printf "%s" "${item_json}" | gpg --batch --yes -r "${gpg_target}" --encrypt -o "${filename}"
-    else
-      username=$(printf "%s" "${item_json}" | op item get - --fields label=username 2>/dev/null)
-      password=$(printf "%s" "${item_json}" | op item get - --fields label=password 2>/dev/null)
-      printf "%s" "${item_json}" | grep -q 'OTP' && otp=$(printf "%s" "${item_json}" | op item get - --fields type=OTP --format=json | jq -r '.value' | sed 's/ //g')
-      [[ -n "${otp}" ]] && otp="otpauth://totp/${id}?secret=${otp}&issuer=totp-secret"
-      echo "creating => ${filename}"
-      printf "%s\n%s\nfull_item: \n%s\n" "${password}" "${otp}" "${item_json}" | gpg --batch --yes -r "${gpg_target}" --encrypt -o "${filename}"
+      if [[ "${category}" == "SSH_KEY" ]]
+      then
+        echo "creating => ${filename}"
+        printf "%s" "${item}" | gpg --batch --yes -r "${gpg_target}" --encrypt -o "${filename}"
+      else
+        username=$(printf "%s" "${item}" | jq -r '.fields[] | select(.label == "username") | .value' | head -1 2>/dev/null)
+        password=$(printf "%s" "${item}" | jq -r '.fields[] | select(.label == "password") | .value' | head -1 2>/dev/null)
+        printf "%s" "${item}" | grep -q 'OTP' && otp=$(printf "%s" "${item}" | jq -r '.fields[] | select(.type == "OTP") | .value' | sed 's/ //g')
+        [[ -n "${otp}" ]] && otp="otpauth://totp/${id}?secret=${otp}&issuer=totp-secret"
+        echo "creating => ${filename}"
+        printf "%s\n%s\nfull_item: \n%s\n" "${password}" "${otp}" "${pretty_item}" | gpg --batch --yes -r "${gpg_target}" --encrypt -o "${filename}"
+      fi
     fi
-  done
+  done <<< "${item_json}"
 done
