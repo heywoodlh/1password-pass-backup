@@ -43,7 +43,7 @@ original content is the rest of the file):
 ```
 yourawesomepassword
 otpauth://totp/someid?secret=SOMETOTPSECRET&issuer=totp-secret
-full_item: 
+full_item:
 {
   "id": "someid",
   "title": "sometitle",
